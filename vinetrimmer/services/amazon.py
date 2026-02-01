@@ -183,7 +183,7 @@ class Amazon(BaseService):
                 service_data=card
             ))
         else:
-            if not data["titleContent"]:
+            if not data.get("titleContent"):
                 episodes = data["episodeList"]["episodes"]
                 for episode in episodes:
                     details = episode["detail"]
@@ -447,7 +447,8 @@ class Amazon(BaseService):
                     hdr="DV",  # Needed for 576kbps Atmos sometimes
                     ignore_errors=True
                 )
-            except:
+            except Exception as e:
+                self.log.debug(f"Failed to get UHD audio manifest: {e}")
                 pass
 
             self.device = temp_device
@@ -592,8 +593,8 @@ class Amazon(BaseService):
                 "marketplaceID": self.region["marketplace_id"],
                 "resourceUsage": "ImmediateConsumption",
                 "videoMaterialType": "Feature",
-                "operatingSystemName": "Linux" if self.vquality == "SD" else "Windows",
-                "operatingSystemVersion": "unknown" if self.vquality == "SD" else "10.0",
+                "operatingSystemName": "Windows",
+                "operatingSystemVersion": "10.0",
                 "customerID": self.customer_id,
                 "deviceDrmOverride": "CENC",
                 "deviceStreamingTechnologyOverride": "DASH",
@@ -781,9 +782,8 @@ class Amazon(BaseService):
                 "playerType": "html5" if self.bitrate != "CVBR" else "xp",
                 "clientId": self.client_id,
                 **({
-                    "operatingSystemName": "Linux" if quality == "SD" else "Windows",
-                    "operatingSystemVersion": "unknown" if quality == "SD" else "10.0",
-                } if not self.device_token else {}),
+                                    "operatingSystemName": "Windows",
+                                    "operatingSystemVersion": "10.0",                } if not self.device_token else {}),
                 "deviceDrmOverride": "CENC",
                 "deviceStreamingTechnologyOverride": "DASH",
                 "deviceProtocolOverride": "Https",
@@ -994,7 +994,7 @@ class Amazon(BaseService):
             self.bearer = None
             if os.path.isfile(self.cache_path):
                 with open(self.cache_path, encoding="utf-8") as fd:
-                    cache = jsonpickle.decode(fd.read())
+                    cache = json.load(fd)
                 #self.device["device_serial"] = cache["device_serial"]
                 if cache.get("expires_in", 0) > int(time.time()):
                     # not expired, lets use
@@ -1008,7 +1008,7 @@ class Amazon(BaseService):
                     # expires_in seems to be in minutes, create a unix timestamp and add the minutes in seconds
                     refreshed_tokens["expires_in"] = int(time.time()) + int(refreshed_tokens["expires_in"])
                     with open(self.cache_path, "w", encoding="utf-8") as fd:
-                        fd.write(jsonpickle.encode(refreshed_tokens))
+                        fd.write(json.dumps(refreshed_tokens))
                     self.bearer = refreshed_tokens["access_token"]
             else:
                 self.log.info(" + Registering new device bearer")
@@ -1070,7 +1070,7 @@ class Amazon(BaseService):
             # Cache bearer
             os.makedirs(os.path.dirname(self.cache_path), exist_ok=True)
             with open(self.cache_path, "w", encoding="utf-8") as fd:
-                fd.write(jsonpickle.encode(bearer))
+                fd.write(json.dumps(bearer))
 
             return bearer["access_token"]
 

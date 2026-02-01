@@ -189,7 +189,8 @@ class AppleTVPlus(BaseService):
                     cdn in as_list(x.url)[0].split("?")[1].split("&") for cdn in ["cdn=ak", "cdn=vod-ak-aoc.tv.apple.com"]
                 )
             ])
-        except:
+        except Exception as e:
+            self.log.debug(f"CDN filtering failed, falling back to all tracks: {e}")
             return Tracks([
                 # multiple CDNs, only want one
                 x for x in tracks

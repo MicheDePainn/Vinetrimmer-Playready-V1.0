@@ -52,6 +52,22 @@ def try_get(obj, func):
         return func(obj)
     except (AttributeError, IndexError, KeyError, TypeError):
         return None
-        
+
+from hashlib import md5
+
+def base_encode(num, alphabet="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"):
+    """Encode a positive integer into a string using the given alphabet."""
+    if num == 0:
+        return alphabet[0]
+    arr = []
+    base = len(alphabet)
+    while num:
+        num, rem = divmod(num, base)
+        arr.append(alphabet[rem])
+    arr.reverse()
+    return ''.join(arr)
+
 def short_hash(input):
+    if isinstance(input, str):
+        input = input.encode('utf-8')
     return base_encode(int(md5(input).hexdigest(), 16))

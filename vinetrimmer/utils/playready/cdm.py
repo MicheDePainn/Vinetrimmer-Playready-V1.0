@@ -5,7 +5,7 @@ import math
 import time
 from typing import List, Union
 from uuid import UUID
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 
 from Crypto.Cipher import AES
 from Crypto.Hash import SHA256
@@ -25,7 +25,7 @@ from .session import Session
 
 
 class Cdm:
-    MAX_NUM_OF_SESSIONS = 16
+    MAX_NUM_OF_SESSIONS = 9999
 
     def __init__(
             self,

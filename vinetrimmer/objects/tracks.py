@@ -195,7 +195,8 @@ class Track:
             
             return True
 
-        except: pass
+        except Exception as e:
+            logging.getLogger("Track").debug(f"Failed to parse PSSH: {e}")
 
         # boxes = []
 
@@ -270,7 +271,8 @@ class Track:
 
             self.kid = uuid.UUID(base64.b64decode(self.kid).hex()).bytes_le.hex()
 
-        except: pass
+        except Exception as e:
+            logging.getLogger("Track").debug(f"Failed to parse KID from PSSH: {e}")
         
         if self.kid or not self.encrypted:
             return True
@@ -463,8 +465,8 @@ class Track:
                 fixed_file
             ], check=True)
             self.swap(fixed_file)
-        except subprocess.CalledProcessError:
-            pass
+        except subprocess.CalledProcessError as e:
+            logging.getLogger("Track").warning(f"Repackaging failed: {e}")
 
     def locate(self):
         return self._location

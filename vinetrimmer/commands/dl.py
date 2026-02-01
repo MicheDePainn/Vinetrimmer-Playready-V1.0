@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from zlib import crc32
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -397,9 +398,20 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
         try:
             #title.tracks.select_videos(by_quality=quality, by_range=range_, one_only=True)
             title.tracks.select_videos(by_quality=quality, by_vbitrate=vbitrate, by_range=range_, one_only=True)
-            title.tracks.select_audios(by_language=alang, by_bitrate=abitrate, with_descriptive=audio_description)
+            try:
+                title.tracks.select_audios(by_language=alang, by_bitrate=abitrate, with_descriptive=audio_description)
+            except ValueError as e:
+                log.warning(f" - {e}")
+                log.warning(" - Falling back to all audio tracks")
+                title.tracks.select_audios(by_language=["all"], by_bitrate=abitrate, with_descriptive=audio_description)
+
            # title.tracks.select_audios(by_language=alang, with_descriptive=audio_description)
-            title.tracks.select_subtitles(by_language=slang, with_forced=True)
+            try:
+                title.tracks.select_subtitles(by_language=slang, with_forced=True)
+            except ValueError as e:
+                log.warning(f" - {e}")
+                log.warning(" - Falling back to all subtitle tracks")
+                title.tracks.select_subtitles(by_language=["all"], with_forced=True)
         except ValueError as e:
             log.error(f" - {e}")
             continue
@@ -444,30 +456,62 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
         if list_:
             continue  # only wanted to see what tracks were available and chosen
 
-        skip_title = False
-        for track in title.tracks:
-            if not keys:
-                log.info(f"Downloading: {track}")
+        # --- PHASE 1: PARALLEL DOWNLOAD & ANALYSIS ---
+        log.info(f"Starting {'Analysis' if keys else 'Downloads'} (Parallel)...")
+        
+        def process_track_download(track, service_name, service_session, keys_only):
+            # 1. AppleTV/iTunes Hack
             if (service_name == "AppleTVPlus" or service_name == "iTunes") and "VID" in str(track):
                 track.encrypted = True
+            
+            # 2. PSSH & KID Retrieval
             if track.encrypted:
-                if not track.get_pssh(service.session):
-                    raise log.exit(" - Failed to get PSSH")
-                log.info(f" + PSSH: {track.pssh}")
-                if not track.get_kid(service.session):
-                    raise log.exit(" - Failed to get KID")
-                log.info(f" + KID: {track.kid}")
-            if not keys:
+                if not track.get_pssh(service_session):
+                    raise RuntimeError(f"Failed to get PSSH for {track}")
+                if not track.get_kid(service_session):
+                    raise RuntimeError(f"Failed to get KID for {track}")
+
+            # 3. Download (if not keys-only)
+            if not keys_only:
                 if track.needs_proxy:
-                    proxy = next(iter(service.session.proxies.values()), None)
+                    proxy = next(iter(service_session.proxies.values()), None)
                 else:
                     proxy = None
-                track.download(directories.temp, headers=service.session.headers, proxy=proxy)
-                log.info(" + Downloaded")
+                
+                # Note: track.download logs its own info, but running in parallel might mix outputs.
+                track.download(directories.temp, headers=service_session.headers, proxy=proxy)
+            
+            return track
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {
+                executor.submit(process_track_download, track, service_name, service.session, keys): track 
+                for track in title.tracks
+            }
+            
+            for future in as_completed(futures):
+                track = futures[future]
+                try:
+                    future.result()
+                    if track.encrypted:
+                        log.info(f" + [{track.id}] PSSH: {track.pssh}")
+                        log.info(f" + [{track.id}] KID: {track.kid}")
+                    if not keys:
+                        log.info(f" + [{track.id}] Downloaded")
+                except Exception as exc:
+                    log.error(f"Failed to process {track}: {exc}")
+                    # In strict mode we might want to exit, matching original behavior
+                    raise log.exit(f" - Error processing {track.id}: {exc}")
+
+        # --- PHASE 2: SEQUENTIAL PROCESSING (Decrypt, Repack, CCExtractor) ---
+        skip_title = False
+        for track in title.tracks:
+            # Note: Download, PSSH, KID are already handled in Phase 1.
+            
             if isinstance(track, VideoTrack) and track.needs_ccextractor_first and not no_subs:
                 ccextractor()
             if track.encrypted:
-                log.info("Decrypting...")
+                log.info(f"Decrypting {track.id}...")
                 if track.key:
                     log.info(f" + KEY: {track.key} (Static)")
                 elif not no_cache:
@@ -568,7 +612,7 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
                     # use matching content key for the tracks key id
                     track.key = next((key for kid, key in content_keys if kid == track.kid), None)
                     if track.key:
-                        log.info(f" + KEY: {track.key} (From CDM)")
+                        log.debug(f" + KEY: {track.key} (From CDM)")
                     else:
                         raise log.exit(f" - No content key with the key ID \"{track.kid}\" was returned")
                 if keys:

@@ -64,7 +64,9 @@ def main(debug):
     log.info(f"[Temp Files]      : {directories.temp}")
     log.info(f"[Downloads]       : {directories.downloads}")
     
-    os.environ['PATH'] = os.path.abspath('./binaries')
+    # Use absolute path relative to this script file to locate binaries
+    binaries_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'binaries'))
+    os.environ['PATH'] = binaries_path
 
     if len(sys.argv) > 1 and sys.argv[1].lower() == "dl":
         sys.argv.pop(1)

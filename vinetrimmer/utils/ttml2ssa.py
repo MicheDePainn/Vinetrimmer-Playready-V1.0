@@ -15,10 +15,7 @@ from collections import OrderedDict
 from copy import deepcopy
 import tempfile
 
-try:
-    from defusedxml import minidom  # type: ignore
-except:
-    from xml.dom import minidom
+from defusedxml import minidom
 
 
 class TimestampConverter(object):
@@ -254,7 +251,7 @@ class Ttml2Ssa(object):
         try:
             self.cache_directory = tempfile.gettempdir() # Fails on Android
             self.cache_downloaded_subtitles = True
-        except:
+        except Exception:
             self.cache_directory = None
             self.cache_downloaded_subtitles = False
 
