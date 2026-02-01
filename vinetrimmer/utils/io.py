@@ -73,19 +73,42 @@ def download_range(url, count, start=0, proxy=None):
         shell=False
     )
     buffer = b''
-    location = -1
+    consumed = 0
+    # Use larger chunks (4KB) instead of reading byte-by-byte
+    CHUNK_SIZE = 4096
+
+    stdout = curl.stdout
+
     while len(buffer) < count:
-        stdout = curl.stdout
-        data = b''
-        if stdout:
-            data = stdout.read(1)
-        if len(data) > 0:
-            location += len(data)
-            if location >= start:
-                buffer += data
-        else:
+        if not stdout:
+            break
+
+        chunk = stdout.read(CHUNK_SIZE)
+        if not chunk:
             if curl.poll() is not None:
                 break
+            continue
+
+        chunk_len = len(chunk)
+        chunk_start = consumed
+        chunk_end = consumed + chunk_len
+        consumed += chunk_len
+
+        # Intersection of [chunk_start, chunk_end) and [start, start + count)
+        target_start = start
+        target_end = start + count
+
+        overlap_start = max(chunk_start, target_start)
+        overlap_end = min(chunk_end, target_end)
+
+        if overlap_start < overlap_end:
+            rel_start = overlap_start - chunk_start
+            rel_end = overlap_end - chunk_start
+            buffer += chunk[rel_start:rel_end]
+
+        if consumed >= target_end:
+            break
+
     curl.kill()  # stop downloading
     return buffer
 
