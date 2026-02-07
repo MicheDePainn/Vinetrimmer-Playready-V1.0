@@ -503,13 +503,39 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
                     # In strict mode we might want to exit, matching original behavior
                     raise log.exit(f" - Error processing {track.id}: {exc}")
 
-        # --- PHASE 2: SEQUENTIAL PROCESSING (Decrypt, Repack, CCExtractor) ---
+        # --- PHASE 2: PARALLEL PROCESSING (Decrypt, Repack, CCExtractor) ---
+        from threading import Lock
+        cdm_lock = Lock()
         skip_title = False
-        for track in title.tracks:
-            # Note: Download, PSSH, KID are already handled in Phase 1.
+
+        def process_track_decryption(track):
+            cc_track = None
             
+            def run_ccextractor():
+                nonlocal cc_track
+                log.info("Extracting EIA-608 captions from stream with CCExtractor")
+                track_id = f"ccextractor-{track.id}"
+                cc_lang = track.language
+                try:
+                    cc = track.ccextractor(
+                        track_id=track_id,
+                        out_path=filenames.subtitles.format(id=track_id, language_code=cc_lang),
+                        language=cc_lang,
+                        original=False,
+                    )
+                except EnvironmentError:
+                    log.warning(" - CCExtractor not found, cannot extract captions")
+                else:
+                    if cc:
+                        cc_track = cc
+                        log.info(" + Extracted")
+                    else:
+                        log.info(" + No captions found")
+
+            # ccextractor first pass
             if isinstance(track, VideoTrack) and track.needs_ccextractor_first and not no_subs:
-                ccextractor()
+                run_ccextractor()
+
             if track.encrypted:
                 log.info(f"Decrypting {track.id}...")
                 if track.key:
@@ -530,11 +556,13 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
                                 log.info(f" + Already exists in {vault} vault")
                 if not track.key:
                     if cache:
-                        skip_title = True
-                        break
+                        return False # indicate skip title
                     try:
                         if "common_privacy_cert" in list(ctx.obj.cdm.__dict__.keys()):
-                            session_id = ctx.obj.cdm.open(track.pssh)
+                            # Assuming session open here is also needed or done differently?
+                            # The original code used open(track.pssh).
+                            with cdm_lock:
+                                session_id = ctx.obj.cdm.open(track.pssh)
                         
                             ctx.obj.cdm.set_service_certificate(
                                 session_id,
@@ -555,7 +583,9 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
                                 )
                             )
                         else:
-                            session_id = ctx.obj.cdm.open()
+                            with cdm_lock:
+                                session_id = ctx.obj.cdm.open()
+
                             downgrade_to_v4 = service_name not in ["ParamountPlus"]
                             wrm_headers = PSSH(track.pssh).get_wrm_headers(downgrade_to_v4)
                             challenge = ctx.obj.cdm.get_license_challenge(session_id, wrm_headers[0])
@@ -571,8 +601,9 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
                                 ).decode("ascii")
                             )
                     except requests.HTTPError as e:
-                            log.debug(traceback.format_exc())
-                            raise log.exit(f" - HTTP Error {e.response.status_code}: {e.response.reason}")
+                        log.debug(traceback.format_exc())
+                        # We can't use log.exit in thread easily, raise exception
+                        raise RuntimeError(f"HTTP Error {e.response.status_code}: {e.response.reason}")
                             
                     
                     content_keys = [
@@ -581,8 +612,8 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
                         (str(x.key_id).replace("-", ""), x.key.hex()) for x in ctx.obj.cdm.get_keys(session_id)
                     ]
                     if not content_keys:
-                        raise log.exit(" - No content keys were returned by the CDM!")
-                    log.info(f" + Obtained content keys from the CDM")
+                        raise RuntimeError("No content keys were returned by the CDM!")
+                    log.info(" + Obtained content keys from the CDM")
                     
                     for kid, key in content_keys:
                         if kid == "b770d5b4bb6b594daf985845aae9aa5f":
@@ -614,18 +645,18 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
                     if track.key:
                         log.debug(f" + KEY: {track.key} (From CDM)")
                     else:
-                        raise log.exit(f" - No content key with the key ID \"{track.kid}\" was returned")
+                        raise RuntimeError(f"No content key with the key ID \"{track.kid}\" was returned")
                 if keys:
-                    continue
+                    return cc_track
                 # TODO: Move decryption code to Track
                 if not config.decrypter:
-                    raise log.exit(" - No decrypter specified")
+                    raise RuntimeError("No decrypter specified")
                 if config.decrypter == "packager":
                     platform = {"win32": "win", "darwin": "osx"}.get(sys.platform, sys.platform)
                     names = ["shaka-packager", "packager", f"packager-{platform}"]
                     executable = next((x for x in (shutil.which(x) for x in names) if x), None)
                     if not executable:
-                        raise log.exit(" - Unable to find packager binary")
+                        raise RuntimeError("Unable to find packager binary")
                     dec = os.path.splitext(track.locate())[0] + ".dec.mp4"
                     try:
                         os.makedirs(directories.temp, exist_ok=True)
@@ -645,11 +676,11 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
                             "--temp_dir", directories.temp
                         ], check=True)
                     except subprocess.CalledProcessError:
-                        raise log.exit(" - Failed!")
+                        raise RuntimeError("Decryption Failed!")
                 elif config.decrypter == "mp4decrypt":
                     executable = shutil.which("mp4decrypt")
                     if not executable:
-                        raise log.exit(" - Unable to find mp4decrypt binary")
+                        raise RuntimeError("Unable to find mp4decrypt binary")
                     dec = os.path.splitext(track.locate())[0] + ".dec.mp4"
                     try:
                         subprocess.run([
@@ -660,14 +691,14 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
                             dec,
                         ])
                     except subprocess.CalledProcessError:
-                        raise log.exit(" - Failed!")
+                        raise RuntimeError("Decryption Failed!")
                 else:
-                    log.exit(f" - Unsupported decrypter: {config.decrypter}")
+                    raise RuntimeError(f"Unsupported decrypter: {config.decrypter}")
                 track.swap(dec)
                 log.info(" + Decrypted")
 
             if keys:
-                continue
+                return cc_track
 
             if track.needs_repack or (config.decrypter == "mp4decrypt" and isinstance(track, (VideoTrack, AudioTrack))):
                 log.info("Repackaging stream with FFmpeg (to fix malformed streams)")
@@ -675,7 +706,35 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
                 log.info(" + Repackaged")
 
             if isinstance(track, VideoTrack) and track.needs_ccextractor and not no_subs:
-                ccextractor()
+                run_ccextractor()
+
+            return cc_track
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {
+                executor.submit(process_track_decryption, track): track
+                for track in title.tracks
+            }
+
+            for future in as_completed(futures):
+                track = futures[future]
+                try:
+                    result_cc = future.result()
+                    if skip_title:
+                        continue
+                    if result_cc is False:  # cache miss
+                        skip_title = True
+                        for f in futures:
+                            if not f.done():
+                                f.cancel()
+                    elif result_cc:
+                        title.tracks.add(result_cc)
+                except Exception as exc:
+                    if skip_title:
+                        continue
+                    log.error(f"Failed to process {track}: {exc}")
+                    raise log.exit(f" - Error processing {track.id}: {exc}")
+
         if skip_title:
             for track in title.tracks:
                 track.delete()
