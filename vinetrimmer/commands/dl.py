@@ -720,13 +720,18 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
                 track = futures[future]
                 try:
                     result_cc = future.result()
-                    if result_cc is False: # cache miss
+                    if skip_title:
+                        continue
+                    if result_cc is False:  # cache miss
                         skip_title = True
-                        # Cancel other futures? Not easy with ThreadPoolExecutor without shutdown
-                        # But we can break loop and set flag
+                        for f in futures:
+                            if not f.done():
+                                f.cancel()
                     elif result_cc:
                         title.tracks.add(result_cc)
                 except Exception as exc:
+                    if skip_title:
+                        continue
                     log.error(f"Failed to process {track}: {exc}")
                     raise log.exit(f" - Error processing {track.id}: {exc}")
 
