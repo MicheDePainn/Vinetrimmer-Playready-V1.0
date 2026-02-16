@@ -21,8 +21,8 @@ class LocalVault:
             return
         rows = self.adb.safe_execute(
             self.ticket,
-            lambda db, cursor: cursor.execute("SELECT `service`, `title`, `content_keys` FROM `keys`")
-        ).fetchall()
+            lambda db, cursor: cursor.execute("SELECT `service`, `title`, `content_keys` FROM `keys`").fetchall()
+        )
         for service, title, content_keys in rows:
             service = service.lower()
             content_keys = json.loads(content_keys)
@@ -59,8 +59,8 @@ class LocalVault:
             lambda db, cursor: cursor.execute(
                 f"SELECT count(id), title FROM `{table}` WHERE kid=? AND key_=?",
                 [kid, key]
-            )
-        ).fetchone()
+            ).fetchone()
+        )
 
     def table_exists(self, name):
         return self.adb.safe_execute(
@@ -68,8 +68,8 @@ class LocalVault:
             lambda db, cursor: cursor.execute(
                 "SELECT count(name) FROM sqlite_master WHERE type='table' AND name=?",
                 [name.lower()]
-            )
-        ).fetchone()[0] == 1
+            ).fetchone()
+        )[0] == 1
 
     def create_table(self, name):
         self.adb.safe_execute(

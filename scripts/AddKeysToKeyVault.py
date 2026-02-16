@@ -61,8 +61,8 @@ for line in input_.splitlines(keepends=False):
         lambda db, cursor: cursor.execute(
             f"SELECT title FROM `{args.table}` WHERE `kid`=:kid",
             {"kid": kid}
-        )
-    ).fetchone()
+        ).fetchone()
+    )
 
     if exists:
         if title and not exists[0]:

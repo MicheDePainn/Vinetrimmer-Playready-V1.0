@@ -16,7 +16,6 @@ class AtomicSQL:
     def __init__(self):
         self.master_lock = Lock()  # prevents race condition
         self.db = {}  # used to hold the database connections and commit changes and such
-        self.cursor = {}  # used to execute queries and receive results
         self.session_lock = {}  # like master_lock, but per-session
 
     def load(self, connection):
@@ -32,7 +31,8 @@ class AtomicSQL:
             while not session_id or session_id in self.db:
                 session_id = os.urandom(16)
             self.db[session_id] = connection
-            self.cursor[session_id] = self.db[session_id].cursor()
+            # Do not cache cursor here to avoid thread-locality issues.
+            # Instead, create one per execution in safe_execute.
             self.session_lock[session_id] = Lock()
             return session_id
         finally:
@@ -52,20 +52,26 @@ class AtomicSQL:
         try:
             failures = 0
             while True:
+                # Create a new cursor for each execution to ensure it's used
+                # in the same thread that created it.
+                cursor = self.db[session_id].cursor()
                 try:
-                    action(
+                    res = action(
                         db=self.db[session_id],
-                        cursor=self.cursor[session_id]
+                        cursor=cursor
                     )
-                    break
+                    return res
                 except sqlite3.OperationalError:
                     failures += 1
                     delay = 3 * failures
                     print(f"AtomicSQL.safe_execute failed, retrying in {delay} seconds...")
                     time.sleep(delay)
+                except Exception:
+                    raise
+                finally:
+                    cursor.close()
                 if failures == 10:
-                    raise ValueError("AtomicSQL.safe_execute failed too many time's. Aborting.")
-            return self.cursor[session_id]
+                    raise ValueError("AtomicSQL.safe_execute failed too many times. Aborting.")
         finally:
             self.session_lock[session_id].release()
             self.master_lock.release()

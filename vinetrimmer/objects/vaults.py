@@ -32,7 +32,10 @@ class Vault:
         if self.type == Vault.Types.LOCAL:
             if not path:
                 raise ValueError("Local vault has no path specified")
-            self.con = sqlite3.connect(os.path.expanduser(path).format(data_dir=directories.data))
+            self.con = sqlite3.connect(
+                os.path.expanduser(path).format(data_dir=directories.data),
+                check_same_thread=False
+            )
         elif self.type == Vault.Types.REMOTE:
             self.con = pymysql.connect(
                 user=username,
@@ -124,8 +127,8 @@ class Vaults:
                 lambda db, cursor: cursor.execute(
                     "SELECT `id`, `key_`, `title` FROM `{1}` WHERE `kid`={0}".format(vault.ph, self.service),
                     [kid]
-                )
-            ).fetchone()
+                ).fetchone()
+            )
             if c:
                 if isinstance(c, dict):
                     c = list(c.values())
@@ -150,15 +153,15 @@ class Vaults:
                 lambda db, cursor: cursor.execute(
                     f"SELECT count(name) FROM sqlite_master WHERE type='table' AND name={vault.ph}",
                     [table]
-                )
-            ).fetchone()[0] == 1
+                ).fetchone()
+            )[0] == 1
         return list(self.adb.safe_execute(
             vault.ticket,
             lambda db, cursor: cursor.execute(
                 f"SELECT count(TABLE_NAME) FROM information_schema.TABLES WHERE TABLE_NAME={vault.ph}",
                 [table]
-            )
-        ).fetchone().values())[0] == 1
+            ).fetchone()
+        ).values())[0] == 1
 
     def create_table(self, vault, table, commit=False):
         if self.table_exists(vault, table):
@@ -204,8 +207,8 @@ class Vaults:
             lambda db, cursor: cursor.execute(
                 "SELECT `id` FROM `{1}` WHERE `kid`={0} AND `key_`={0}".format(vault.ph, self.service),
                 [kid, key]
-            )
-        ).fetchone():
+            ).fetchone()
+        ):
             return InsertResult.ALREADY_EXISTS
         self.adb.safe_execute(
             vault.ticket,

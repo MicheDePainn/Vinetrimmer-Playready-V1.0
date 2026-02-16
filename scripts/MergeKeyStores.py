@@ -33,8 +33,8 @@ output_db_id = output_db.load(sqlite3.connect(args.output))
 # get all keys from input db
 input_keys = input_db.safe_execute(
     input_db_id,
-    lambda db, cursor: cursor.execute("SELECT * FROM `keys`")
-).fetchall()
+    lambda db, cursor: cursor.execute("SELECT * FROM `keys`").fetchall()
+)
 
 for i, service, title, pssh_b64, pssh_sha1, content_keys in input_keys:
     exists = output_db.safe_execute(
@@ -49,8 +49,8 @@ for i, service, title, pssh_b64, pssh_sha1, content_keys in input_keys:
                 "pssh_b64": pssh_b64,
                 "pssh_sha1": pssh_sha1
             }
-        )
-    ).fetchone()
+        ).fetchone()
+    )
     if exists:
         has_differences = (
                 json.loads(exists[5]) != json.loads(content_keys) or
