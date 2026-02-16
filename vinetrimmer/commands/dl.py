@@ -221,9 +221,9 @@ def get_credentials(service, profile="default"):
               help="Video Color Range, defaults to SDR.")
 @click.option("-w", "--wanted", callback=wanted_param, default=None,
               help="Wanted episodes, e.g. `S01-S05,S07`, `S01E01-S02E03`, `S02-S02E03`, e.t.c, defaults to all.")
-@click.option("-al", "--alang", callback=language_param, default="orig",
+@click.option("-al", "--alang", callback=language_param, default="fr",
               help="Language wanted for audio.")
-@click.option("-sl", "--slang", callback=language_param, default="all",
+@click.option("-sl", "--slang", callback=language_param, default="fr",
               help="Language wanted for subtitles.")
 @click.option("--proxy", type=str, default=None,
               help="Proxy URI to use. If a 2-letter country is provided, it will try get a proxy from the config.")

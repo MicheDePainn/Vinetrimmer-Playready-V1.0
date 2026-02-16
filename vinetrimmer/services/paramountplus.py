@@ -76,7 +76,7 @@ class ParamountPlus(BaseService):
                 params={
                     "includeTrailerInfo": "true",
                     "includeContentInfo": "true",
-                    "locale": "en-us",
+                    "locale": "fr-fr" if self.region == "FR" else "en-us",
                     "at": self.config[self.region]["at_token"],
                 },
             ).json()
